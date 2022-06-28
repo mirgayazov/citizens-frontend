@@ -18,41 +18,16 @@ import "react-simple-tree-menu/dist/main.css";
 import {toast, ToastContainer} from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import readXlsxFile from "read-excel-file";
+import JSONViewer from 'react-json-viewer';
 
 const chains = ["city district street", "district country city home", "country district street home", "home" +
 " country", "street city home"];
-
-function csvToArray(str, delimiter = ",") {
-    // slice from start of text to the first \n index
-    // use split to create an array from string by delimiter
-    const headers = str.slice(0, str.indexOf("\n")).split(delimiter);
-
-    // slice from \n index + 1 to the end of the text
-    // use split to create an array of each csv value row
-    const rows = str.slice(str.indexOf("\n") + 1).split("\n");
-
-    // Map the rows
-    // split values from each row into an array
-    // use headers.reduce to create an object
-    // object properties derived from headers:values
-    // the object passed as an element of the array
-    const arr = rows.map(function (row) {
-        const values = row.split(delimiter);
-        const el = headers.reduce(function (object, header, index) {
-            object[header] = values[index];
-            return object;
-        }, {});
-        return el;
-    });
-
-    // return the array
-    return arr;
-}
 
 function App() {
     const [types, setTypes] = useState([]);
     const [context, setContext] = useState(null);
     const [treeData, setTreeData] = useState(null);
+    const [currentItem, setCurrentItem] = useState({});
     const chainRef = useRef();
     const userDatasetRef = useRef();
 
@@ -78,7 +53,7 @@ function App() {
         let keySeparatorIndex = chain.indexOf('/');
         let keys = ['id'];
         if (keySeparatorIndex !== -1) {
-            let newKeys = chain.substring(keySeparatorIndex+1).trim()
+            let newKeys = chain.substring(keySeparatorIndex + 1).trim()
             keys = keys.concat(newKeys.split(' ').map(e => e.replaceAll('_', ' ')))
             chain = chain.substring(0, keySeparatorIndex).trim()
         }
@@ -104,8 +79,41 @@ function App() {
 
     const onItemClick = (item) => {
         if (!item.hasNodes) {
-            toast.info(`${item.citizenName}, ${item.cityName}, ${item.cityData} жителей.`, {autoClose: 1500})
+            let toRm = ['searchTerm', 'type', 'groups', 'label', 'hasNodes', 'isOpen', 'key', 'openNodes'];
+            let newObj = {};
+
+            for (const itemKey in item) {
+                if (!toRm.includes(itemKey)) {
+                    newObj[itemKey] = item[itemKey]
+                }
+            }
+            setCurrentItem(newObj)
+            // if (item.citizenName) {
+            //     toast.info(`${item.citizenName}, ${item.cityName}, ${item.cityData} жителей.`, {autoClose: 1500})
+            // } else {
+            //     toast.info(JSON.stringify(item))
+            //
+            // }
         }
+    }
+
+    function download(filename, text) {
+        if (!text) {
+            toast.warn('Для начала постройте иерархию!', {autoClose: 1500})
+            return
+        }
+
+        text = JSON.stringify(text)
+        var element = document.createElement('a');
+        element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+        element.setAttribute('download', filename);
+
+        element.style.display = 'none';
+        document.body.appendChild(element);
+
+        element.click();
+
+        document.body.removeChild(element);
     }
 
     const updateTypes = (data) => {
@@ -129,7 +137,7 @@ function App() {
             let names = {}
             for (let j = 1; j < newTypes.length; j++) {
                 let key = newTypes[j];
-                names[key] = ''+element[j];
+                names[String(key)] = '' + element[j];
             }
 
             for (let j = 1; j < newTypes.length; j++) {
@@ -137,7 +145,7 @@ function App() {
                 let key = newTypes[j];
                 obj['id'] = element[0];
                 obj['type'] = key;
-                obj['name'] = ''+element[j];
+                obj['name'] = '' + element[j];
 
                 transformed.push({...obj, ...names})
             }
@@ -153,55 +161,63 @@ function App() {
             <div className={styles.container}>
                 <Card>
                     <Card.Body>
-                        <Card.Title>Динамическая иерархия граждан</Card.Title>
+                        <Card.Title>
+                            <center>
+                                Конструктор (генератор) json файлов на базе несгруппированных иерархических
+                                данных в форматах xlsx и csv с поддержкой визуализации.
+                            </center>
+                        </Card.Title>
                     </Card.Body>
                 </Card>
             </div>
 
             <div className={styles.container}>
-                {types.length ? <>
-                    <Accordion defaultActiveKey="0">
-                        <Accordion.Item eventKey="0">
-                            <Accordion.Header>Набор фильтров</Accordion.Header>
-                            <Accordion.Body>
-                                <Card>
-                                    <Card.Body>
-                                        <Card.Text>Я расширил базовые фильтры, добавив к ним coutry и home.
-                                            Фильтры
-                                            каждому человеку
-                                            назначены случайным образом. Вы можете добиться первоначальной
-                                            струтуры путем удаления этих фильтров из цепочки, то есть оставить
-                                            только city, district и street.</Card.Text>
-                                    </Card.Body>
-                                </Card>
-                                <br/>
-                                <ListGroup as="ol" numbered>
-                                    {types.map(type => {
-                                        return (
-                                            <ListGroup.Item key={type} as="li">{type}</ListGroup.Item>
-                                        );
-                                    })}
-                                </ListGroup>
-                            </Accordion.Body>
-                        </Accordion.Item>
-                    </Accordion>
-                </> : <Spinner animation="border" role="status">
-                    <span className="visually-hidden">Loading...</span>
-                </Spinner>}
+                <Accordion defaultActiveKey="0">
+                    <Accordion.Item eventKey="0">
+                        <Accordion.Header>Прежде чем начать</Accordion.Header>
+                        <Accordion.Body>
+                            Наш генератор обрабатывает запросы, которые построены на определенных правилах.
+                            Вот одни из примеров правильных запросов:
+                            <br/> - "город улица",
+                            <br/> - "страна город улица",
+                            <br/> - "город улица дом / имя фамилия".
+                            <br/>
+                            <br/> Разберем последний запрос подробнее:
+                            <ol>
+                                <li>
+                                    До символа "/" идет цепочка фильтров в том порядке в котором Вам нужно
+                                    построить иерархию.
+                                </li>
+                                <li>
+                                    Фильтры распознаются из Ваших загруженных файлов и представляют собой
+                                    характеристики сущностей.
+                                </li>
+                                <li>
+                                    [Опционально] после символа "/" могут идти имена характеристик, которые
+                                    будут отображены при визуализации иерархии, по умолчанию отображается одна
+                                    характеристика - уникальный идентификатор сущности.
+                                </li>
+                            </ol>
+
+                        </Accordion.Body>
+                    </Accordion.Item>
+                </Accordion>
             </div>
 
             <div className={styles.container}>
                 <Accordion defaultActiveKey="0">
                     <Accordion.Item eventKey="0">
-                        <Accordion.Header>Что такое цепочка и как её строить?</Accordion.Header>
+                        <Accordion.Header>Что такое цепочка фильтров и как её строить?</Accordion.Header>
                         <Accordion.Body>
                             Цепочка состоит из последовательно идущих фильтров разделенных пробелом. Вы можете
-                            строить абсолютно любые иерархии, например помимо банального примера город > район
+                            строить абсолютно любые иерархии, например, используя наши тестовые данных, помимо
+                            банального примера город > район
                             > улица, можно составить следующую цепочку: улица > город или дом > город, такие
                             варианты могут быть полезными при анализе данных, то есть мы можем посмотреть кто
                             живет на одноименных улицах в разных городах и т.д. Ниже
-                            представлены примеры возможных цепочек, но это только часть комбинаций, придумайте
-                            свою прямо сейчас!
+                            представлены примеры возможных тестовых цепочек, но это только часть комбинаций,
+                            придумайте
+                            свою прямо сейчас или загрузите свои данные в форматах xlsx или csv!
                         </Accordion.Body>
                     </Accordion.Item>
                 </Accordion>
@@ -228,13 +244,35 @@ function App() {
             </div>
 
             <div className={styles.container}>
+                {types.length ? <>
+                    <Accordion defaultActiveKey="0">
+                        <Accordion.Item eventKey="0">
+                            <Accordion.Header>Текущий набор фильтров</Accordion.Header>
+                            <Accordion.Body>
+                                <ListGroup as="ol" numbered>
+                                    {types.map(type => {
+                                        return (
+                                            <ListGroup.Item key={type} as="li">{type}</ListGroup.Item>
+                                        );
+                                    })}
+                                </ListGroup>
+                            </Accordion.Body>
+                        </Accordion.Item>
+                    </Accordion>
+                </> : <Spinner animation="border" role="status">
+                    <span className="visually-hidden">Loading...</span>
+                </Spinner>}
+            </div>
+
+            <div className={styles.container}>
                 <Form.Group controlId="formFile" className="mb-3">
-                    <Form.Label>В качестве демонстрации мы используем собственный датасет, но Вы может
-                        загрузить свои данные в формате xlsx!</Form.Label>
+                    <Form.Label>В качестве демонстрации мы используем датасет с жителями Москвы, Питера и
+                        Воронежа, но Вы может
+                        загрузить свои данные в форматах xlsx и csv!</Form.Label>
                     <Form.Control type="file" ref={userDatasetRef} onChange={e => {
                         let file = e.target.files[0];
 
-                        if  (file.type === 'text/csv') {
+                        if (file.type === 'text/csv') {
                             const reader = new FileReader();
 
                             reader.onload = function (e) {
@@ -271,16 +309,28 @@ function App() {
                     <Button onClick={getTreeData} variant="outline-primary" id="button-addon2">
                         Построить иерархию
                     </Button>
+                    <Button onClick={() => download(Date.now().toString(), treeData)}
+                            variant="outline-primary" id="button-addon3">
+                        Скачать результат
+                    </Button>
                 </InputGroup>
             </div>
 
+
+
             {treeData ?
-                <div className={styles.container}>
+                <div className={styles.container} style={{position: "sticky", top: '0'}}>
                     <Card>
                         <Card.Body>
                             <Card.Text>
-                                Для вывода подробной информации выберите жителя (вместо тултипа).
+                                Для вывода подробной информации выберите сущность.
                             </Card.Text>
+                            <div style={{overflowX: "auto"}}>
+                                <JSONViewer
+                                    json={currentItem}
+                                />
+                            </div>
+
                         </Card.Body>
                     </Card>
                     <br/>
